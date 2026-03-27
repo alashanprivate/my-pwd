@@ -1,0 +1,36 @@
+[package]
+name = "my-pwd"
+version = "0.1.0"
+description = "A cross-platform password manager"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+# 禁用 tauri-build 以避免资源处理问题
+# tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.5", features = ["shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.30", features = ["bundled"] }
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+zeroize = { version = "1.6", features = ["zeroize_derive"] }
+totp-lite = "2.0"
+rand = "0.8"
+base64 = "0.21"
+hex = "0.4"
+thiserror = "1.0"
+chrono = "0.4"
+dirs = "5.0"
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
