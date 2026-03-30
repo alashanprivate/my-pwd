@@ -7,7 +7,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "MyPwd",
+    "productName": "My-Pwd",
     "version": "0.1.0"
   },
   "tauri": {
@@ -29,7 +29,7 @@
     "bundle": {
       "active": true,
       "targets": [
-        "msi"
+        "msi","dmg"
       ],
       "identifier": "com.mypasswordmanager.app",
       "icon": [
@@ -47,7 +47,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "MyPwd",
+        "title": "My-Pwd",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
