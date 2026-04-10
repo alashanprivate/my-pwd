@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Save, Eye, EyeOff, Globe, User, Lock, FileText, Star } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { Category } from '../store/useStore';
+import { calculatePasswordStrength, strengthColors, strengthTextColors } from '../utils/passwordStrength';
 
 interface EntryModalProps {
   entryId: string | null;
@@ -186,6 +187,27 @@ export default function EntryModal({ entryId, onClose, categories }: EntryModalP
                   </button>
                 </div>
               </div>
+              {/* 密码强度指示条 */}
+              {formData.password && (
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex-1 flex gap-1">
+                    {[1, 2, 3, 4, 5, 6].map((i) => {
+                      const { score, level } = calculatePasswordStrength(formData.password);
+                      return (
+                        <div
+                          key={i}
+                          className={`h-1 flex-1 rounded-full transition-colors ${
+                            i <= score ? strengthColors[level] : 'bg-gray-200 dark:bg-dark-700'
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <span className={`text-xs font-medium ${strengthTextColors[calculatePasswordStrength(formData.password).level]}`}>
+                    {calculatePasswordStrength(formData.password).label}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

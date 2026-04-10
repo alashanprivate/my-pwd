@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Shield, Palette, Download, Upload, RotateCcw, Trash2, Clock } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { invoke } from '@tauri-apps/api/tauri';
+import { calculatePasswordStrength } from '../utils/passwordStrength';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -40,21 +41,10 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const [clearPassword, setClearPassword] = useState('');
 
-  // 计算密强
-  const calculateStrength = (pwd: string) => {
-    let score = 0;
-    if (pwd.length >= 8) score += 1;
-    if (pwd.length >= 12) score += 1;
-    if (/[A-Z]/.test(pwd)) score += 1;
-    if (/[a-z]/.test(pwd)) score += 1;
-    if (/[0-9]/.test(pwd)) score += 1;
-    if (/[^A-Za-z0-9]/.test(pwd)) score += 1;
-    setPwdStrength(score);
-  };
-
+  // 计算密码强度（使用通用工具函数）
   const handleNewPasswordChange = (val: string) => {
     setNewPassword(val);
-    calculateStrength(val);
+    setPwdStrength(calculatePasswordStrength(val).score);
   };
 
   const handleChangePassword = async () => {

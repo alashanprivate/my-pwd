@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Search, Lock, Plus, Settings, Trash2, Star, LayoutGrid, X, ChevronDown, ChevronRight, KeyRound, FolderTree, Filter } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import logoUrl from '../assets/logo.png';
 import AllPasswords from './AllPasswords';
 import SettingsModal from './SettingsModal';
@@ -26,7 +27,10 @@ export default function MainLayout({ onLock }: { onLock: () => void }) {
   const [editingEntry, setEditingEntry] = useState<string | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  const filteredEntries = entries.filter(entry => {
+  // 搜索防抖：200ms 延迟，避免高频输入触发过多过滤计算
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 200);
+
+  const filteredEntries = useMemo(() => entries.filter(entry => {
     if (currentView === 'categories') return false; // 不在分类管理视图中显示条目
     if (currentView === 'trash' && !entry.deleted) return false;
     if (currentView !== 'trash' && entry.deleted) return false;
@@ -36,8 +40,8 @@ export default function MainLayout({ onLock }: { onLock: () => void }) {
     // 分类筛选
     if (searchCategory && entry.category_id !== searchCategory) return false;
 
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
+    if (debouncedSearchQuery) {
+      const query = debouncedSearchQuery.toLowerCase();
       return (
         entry.title.toLowerCase().includes(query) ||
         entry.username.toLowerCase().includes(query) ||
@@ -46,7 +50,7 @@ export default function MainLayout({ onLock }: { onLock: () => void }) {
     }
 
     return true;
-  });
+  }), [entries, currentView, selectedCategory, searchCategory, debouncedSearchQuery]);
 
   const handleAddEntry = () => {
     setEditingEntry(null);

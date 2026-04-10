@@ -36,8 +36,22 @@ export default function AllPasswords({ entries, categories, onEdit }: AllPasswor
     setCurrentPage(1);
   }, [entries.length]);
 
-  const handleCopy = (text: string) => {
+  // 剪贴板自动清除计时器引用
+  const [clipboardTimer, setClipboardTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCopy = (text: string, isPassword: boolean = false) => {
+    // 清除之前的计时器
+    if (clipboardTimer) {
+      clearTimeout(clipboardTimer);
+    }
     navigator.clipboard.writeText(text);
+    // 密码字段 30 秒后自动清除剪贴板
+    if (isPassword) {
+      const timer = setTimeout(() => {
+        navigator.clipboard.writeText('');
+      }, 30000);
+      setClipboardTimer(timer);
+    }
   };
 
   const handleFavorite = (id: string, favorite: boolean) => {
@@ -162,8 +176,9 @@ export default function AllPasswords({ entries, categories, onEdit }: AllPasswor
                     {isPasswordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                   <button
-                    onClick={() => handleCopy(entry.password)}
+                    onClick={() => handleCopy(entry.password, true)}
                     className="text-gray-400 dark:text-gray-500 hover:text-accent-500 transition-colors flex-shrink-0"
+                    title="复制密码（30 秒后自动清除）"
                   >
                     <Copy className="w-4 h-4" />
                   </button>
