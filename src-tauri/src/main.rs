@@ -13,11 +13,15 @@ use tauri::State;
 use std::sync::Mutex;
 use types::*;
 
-struct AppState(Mutex<Option<VaultState>>);
+/// 应用全局状态：密钥库状态 + 密码重置流程中的临时恢复密钥
+struct AppState {
+    vault: Mutex<Option<VaultState>>,
+    recovery_db_key: Mutex<Option<Vec<u8>>>,
+}
 
 #[tauri::command]
 async fn check_vault_setup(state: State<'_, AppState>) -> Result<bool, String> {
-    let _app_state = state.0.lock().unwrap();
+    let _app_state = state.vault.lock().unwrap();
     Ok(storage::check_vault_exists())
 }
 
@@ -25,23 +29,30 @@ async fn check_vault_setup(state: State<'_, AppState>) -> Result<bool, String> {
 async fn create_vault(
     password: String,
     security_questions: Vec<SecurityQuestion>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    vault::create_vault(&password, &security_questions)
+    let vault_state = vault::create_vault(&password, &security_questions)?;
+    {
+        let mut app_state = state.vault.lock().unwrap();
+        *app_state = Some(vault_state);
+    }
+    Ok(())
 }
 
 #[tauri::command]
 async fn unlock_vault(password: String, state: State<'_, AppState>) -> Result<String, String> {
     let vault_state = vault::unlock_vault(&password)?;
+    let vault_id = vault_state.vault_id.clone();
     {
-        let mut app_state = state.0.lock().unwrap();
-        *app_state = Some(vault_state.clone());
+        let mut app_state = state.vault.lock().unwrap();
+        *app_state = Some(vault_state);
     }
-    Ok(vault_state.vault_id)
+    Ok(vault_id)
 }
 
 #[tauri::command]
 async fn lock_vault(state: State<'_, AppState>) -> Result<(), String> {
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     *app_state = None;
     Ok(())
 }
@@ -52,13 +63,29 @@ async fn get_security_questions() -> Result<Vec<SecurityQuestion>, String> {
 }
 
 #[tauri::command]
-async fn verify_security_answers(answers: Vec<String>) -> Result<(), String> {
-    vault::verify_security_answers(&answers)
+async fn verify_security_answers(
+    answers: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let database_key = vault::verify_security_answers(&answers)?;
+    {
+        let mut recovery_key = state.recovery_db_key.lock().unwrap();
+        *recovery_key = Some(database_key);
+    }
+    Ok(())
 }
 
 #[tauri::command]
-async fn reset_password(new_password: String) -> Result<(), String> {
-    vault::reset_password(&new_password)
+async fn reset_password(
+    new_password: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let database_key = {
+        let mut recovery_key = state.recovery_db_key.lock().unwrap();
+        recovery_key.take().ok_or_else(|| "No recovery session active".to_string())?
+    };
+
+    vault::reset_password(&new_password, &database_key)
 }
 
 #[tauri::command]
@@ -67,11 +94,19 @@ async fn change_password(
     new_password: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let _app_state = state.0.lock().unwrap();
+    let mut _app_state = state.vault.lock().unwrap();
     if _app_state.is_none() {
         return Err("Vault not unlocked".to_string());
     }
-    vault::change_password(&current_password, &new_password)
+
+    let new_master_key = vault::change_password(&current_password, &new_password)?;
+
+    // 更新 AppState 中的 master_key
+    if let Some(state) = (&mut *_app_state).as_mut() {
+        state.master_key = new_master_key;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -80,7 +115,7 @@ async fn update_security_questions(
     questions: Vec<SecurityQuestion>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let _app_state = state.0.lock().unwrap();
+    let _app_state = state.vault.lock().unwrap();
     if _app_state.is_none() {
         return Err("Vault not unlocked".to_string());
     }
@@ -89,7 +124,7 @@ async fn update_security_questions(
 
 #[tauri::command]
 async fn list_entries(state: State<'_, AppState>) -> Result<Vec<Entry>, String> {
-    let app_state = state.0.lock().unwrap();
+    let app_state = state.vault.lock().unwrap();
     match &*app_state {
         Some(state) => entry_api::list_entries(state),
         None => Err("Vault not unlocked".to_string()),
@@ -101,7 +136,7 @@ async fn create_entry(
     entry: EntryCreate,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     match &mut *app_state {
         Some(state) => entry_api::create_entry(state, entry),
         None => Err("Vault not unlocked".to_string()),
@@ -114,7 +149,7 @@ async fn update_entry(
     entry: EntryUpdate,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     match &mut *app_state {
         Some(state) => entry_api::update_entry(state, &id, entry),
         None => Err("Vault not unlocked".to_string()),
@@ -123,7 +158,7 @@ async fn update_entry(
 
 #[tauri::command]
 async fn delete_entry(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     match &mut *app_state {
         Some(state) => entry_api::delete_entry(state, &id),
         None => Err("Vault not unlocked".to_string()),
@@ -132,7 +167,7 @@ async fn delete_entry(id: String, state: State<'_, AppState>) -> Result<(), Stri
 
 #[tauri::command]
 async fn restore_entry(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     match &mut *app_state {
         Some(state) => entry_api::restore_entry(state, &id),
         None => Err("Vault not unlocked".to_string()),
@@ -141,7 +176,7 @@ async fn restore_entry(id: String, state: State<'_, AppState>) -> Result<(), Str
 
 #[tauri::command]
 async fn list_categories(state: State<'_, AppState>) -> Result<Vec<Category>, String> {
-    let app_state = state.0.lock().unwrap();
+    let app_state = state.vault.lock().unwrap();
     match &*app_state {
         Some(state) => category_api::list_categories(state),
         None => Err("Vault not unlocked".to_string()),
@@ -153,7 +188,7 @@ async fn create_category(
     category: CategoryCreate,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     match &mut *app_state {
         Some(state) => category_api::create_category(state, category),
         None => Err("Vault not unlocked".to_string()),
@@ -166,7 +201,7 @@ async fn update_category(
     category: CategoryUpdate,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     match &mut *app_state {
         Some(state) => category_api::update_category(state, &id, category),
         None => Err("Vault not unlocked".to_string()),
@@ -175,7 +210,7 @@ async fn update_category(
 
 #[tauri::command]
 async fn delete_category(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     match &mut *app_state {
         Some(state) => category_api::delete_category(state, &id),
         None => Err("Vault not unlocked".to_string()),
@@ -184,7 +219,7 @@ async fn delete_category(id: String, state: State<'_, AppState>) -> Result<(), S
 
 #[tauri::command]
 async fn export_data(format: String, state: State<'_, AppState>) -> Result<String, String> {
-    let app_state = state.0.lock().unwrap();
+    let app_state = state.vault.lock().unwrap();
     match &*app_state {
         Some(state) => settings_api::export_data(state, &format),
         None => Err("Vault not unlocked".to_string()),
@@ -199,7 +234,7 @@ async fn import_data(
 ) -> Result<(), String> {
     eprintln!("[DEBUG] import_data command called, format: {}, data length: {}", format, data.len());
 
-    let mut app_state = state.0.lock().unwrap();
+    let mut app_state = state.vault.lock().unwrap();
     match &mut *app_state {
         Some(state) => {
             eprintln!("[DEBUG] Vault state found, calling import_data");
@@ -215,13 +250,26 @@ async fn import_data(
 }
 
 #[tauri::command]
-async fn clear_all_data(password: String) -> Result<(), String> {
-    vault::clear_all_data_authenticated(&password)
+async fn clear_all_data(password: String, state: State<'_, AppState>) -> Result<(), String> {
+    vault::clear_all_data_authenticated(&password)?;
+    // 清除内存中的状态
+    {
+        let mut app_state = state.vault.lock().unwrap();
+        *app_state = None;
+    }
+    {
+        let mut recovery_key = state.recovery_db_key.lock().unwrap();
+        *recovery_key = None;
+    }
+    Ok(())
 }
 
 fn main() {
     tauri::Builder::default()
-        .manage(AppState(Mutex::new(None)))
+        .manage(AppState {
+            vault: Mutex::new(None),
+            recovery_db_key: Mutex::new(None),
+        })
         .invoke_handler(tauri::generate_handler![
             check_vault_setup,
             create_vault,

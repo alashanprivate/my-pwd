@@ -27,7 +27,8 @@ pub fn list_categories(_state: &VaultState) -> Result<Vec<Category>, String> {
 }
 
 pub fn create_category(_state: &mut VaultState, category: CategoryCreate) -> Result<String, String> {
-    let id = generate_id();
+    // P0-1: Use crypto::generate_secure_id instead of insecure thread_rng
+    let id = crate::crypto::generate_secure_id();
     let now = chrono::Utc::now().timestamp();
 
     let conn = storage::get_connection()?;
@@ -70,7 +71,6 @@ pub fn update_category(_state: &mut VaultState, id: &str, category: CategoryUpda
 pub fn delete_category(_state: &VaultState, id: &str) -> Result<(), String> {
     let conn = storage::get_connection()?;
 
-    // Check if category has any entries
     let entry_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM entries WHERE category_id = ? AND deleted = 0",
@@ -83,7 +83,6 @@ pub fn delete_category(_state: &VaultState, id: &str) -> Result<(), String> {
         return Err(format!("Cannot delete category: it has {} associated entries", entry_count));
     }
 
-    // Delete the category
     conn.execute(
         "DELETE FROM categories WHERE id = ?",
         [id],
@@ -93,12 +92,4 @@ pub fn delete_category(_state: &VaultState, id: &str) -> Result<(), String> {
     storage::log_audit(&conn, "delete_category", Some(format!("Category ID: {}", id)))?;
 
     Ok(())
-}
-
-fn generate_id() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 16];
-    let mut rng = rand::thread_rng();
-    rng.fill_bytes(&mut bytes);
-    hex::encode(bytes)
 }

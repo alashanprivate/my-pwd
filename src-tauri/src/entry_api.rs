@@ -63,7 +63,8 @@ pub fn list_entries(state: &VaultState) -> Result<Vec<Entry>, String> {
 }
 
 pub fn create_entry(state: &mut VaultState, entry: EntryCreate) -> Result<String, String> {
-    let id = generate_id();
+    // P0-1: Use crypto::generate_secure_id instead of insecure thread_rng
+    let id = crypto::generate_secure_id();
     let now = chrono::Utc::now().timestamp();
 
     let encrypted_title = crypto::encrypt_data(&state.database_key, entry.title.as_bytes())?;
@@ -100,7 +101,6 @@ pub fn create_entry(state: &mut VaultState, entry: EntryCreate) -> Result<String
 pub fn update_entry(state: &mut VaultState, id: &str, entry: EntryUpdate) -> Result<(), String> {
     let conn = storage::get_connection()?;
 
-    // Get existing entry
     let existing = get_entry_by_id(&conn, state, id)?;
 
     let title = entry.title.unwrap_or(existing.title);
@@ -216,12 +216,4 @@ fn get_entry_by_id(conn: &Connection, state: &VaultState, id: &str) -> Result<En
         }
     )
     .map_err(|e| format!("Failed to get entry: {}", e))
-}
-
-fn generate_id() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 16];
-    let mut rng = rand::thread_rng();
-    rng.fill_bytes(&mut bytes);
-    hex::encode(bytes)
 }
